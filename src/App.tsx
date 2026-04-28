@@ -89,7 +89,7 @@ export default function App() {
 
     try {
       // Fetch tokens owned by wallet from Reservoir
-        const { data } = await axios.get(`${import.meta.env.VITE_RESERVOIR_BASE}/users/${walletAddress}/tokens/v7`, {
+        const { data } = await axios.get(`https://api-base.reservoir.tools/users/${walletAddress}/tokens/v7`, {
       params: {
         limit: 50,
         includeTopBid: true,
