@@ -14,8 +14,8 @@ import {
   X,
 } from "lucide-react";
 import { AppKit } from "@circle-fin/app-kit";
-import { createAdapter } from "@circle-fin/adapter-viem-v2";
-import { createWalletClient, custom } from "viem";
+import { createViemAdapter } from "@circle-fin/adapter-viem-v2";
+import { createWalletClient, custom, encodeAbiParameters } from "viem";
 
 // ─── Constants ───────────────────────────────────────────────────────────[...]
 const TREASURY = "0x64D868100191D920D8d52F05F91462Bc702ba0ba";
@@ -154,7 +154,7 @@ export default function App() {
     }));
 
     try {
-      const adapter = createAdapter({ walletClient });
+      const adapter = createViemAdapter({ walletClient });
       const kit = new AppKit();
 
       // The sell order proceeds to the user (90%), protocol fee (10%) to treasury
