@@ -15,9 +15,9 @@ import {
 } from "lucide-react";
 import { AppKit } from "@circle-fin/app-kit";
 import { createAdapter } from "@circle-fin/adapter-viem-v2";
-import { createWalletClient, custom, encodeAbiParameters } from "viem";
+import { createWalletClient, custom } from "viem";
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Constants ───────────────────────────────────────────────────────────[...]
 const TREASURY = "0x64D868100191D920D8d52F05F91462Bc702ba0ba";
 const PROTOCOL_FEE_BPS = 1000; // 10%
 const KIT_KEY = import.meta.env.VITE_CIRCLE_KIT_KEY as string;
@@ -26,7 +26,7 @@ const RESERVOIR_BASE = "https://api.reservoir.tools";
 // Arc Testnet chain identifier per the official SDK enum
 const ARC_CHAIN = "Arc_Testnet";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────[...]
 interface NFT {
   tokenId: string;
   name: string;
@@ -51,7 +51,7 @@ interface NFTAction {
   usdcOut?: string;
 }
 
-// ─── App ──────────────────────────────────────────────────────────────────────
+// ─── App ─────────────────────────────────────────────────────────────[...]
 export default function App() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [nfts, setNfts] = useState<NFT[]>([]);
@@ -190,7 +190,9 @@ export default function App() {
         [key]: { ...prev[key], status: "error", error: e.message ?? "Swap failed" },
       }));
     }
-  };  // ─── Burn (zero-bid NFTs) ─────────────────────────────────────────────────
+  };
+
+  // ─── Burn (zero-bid NFTs) ─────────────────────────────────────────────────
   const handleBurn = async (nft: NFT) => {
     if (!walletClient || !walletAddress) return;
     const key = `${nft.contract}-${nft.tokenId}`;
@@ -207,7 +209,7 @@ export default function App() {
       const data = encodeERC721Transfer(walletAddress as `0x${string}`, BURN_ADDRESS, BigInt(nft.tokenId));
 
       const txHash = await walletClient.sendTransaction({
-        to: nft.contract as 0x${string},
+        to: nft.contract as `0x${string}`,
         data,
       });
 
@@ -222,7 +224,11 @@ export default function App() {
       }));
     }
   };
-const nft of selected) {
+
+  // ─── Bulk actions ─────────────────────────────────────────────────────────
+  const handleBulkAction = async () => {
+    const selected = nfts.filter((n) => selectedIds.has(`${n.contract}-${n.tokenId}`));
+    for (const nft of selected) {
       if (nft.hasBid) await handleRecycle(nft);
       else await handleBurn(nft);
     }
@@ -240,7 +246,7 @@ const nft of selected) {
     setSelectedIds(new Set(nfts.map((n) => `${n.contract}-${n.tokenId}`)));
   const clearAll = () => setSelectedIds(new Set());
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ─── Render ───────────────────────────────────────────────────────────[...]
   return (
     <div style={styles.root}>
       {/* Scanlines overlay */}
@@ -513,7 +519,7 @@ function encodeERC721Transfer(from: string, to: string, tokenId: bigint): `0x${s
   return `0x${selector}${addr(from)}${addr(to)}${uint(tokenId)}`;
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ─── Styles ────────────────────────────────────────────────────────────[...]
 const styles: Record<string, React.CSSProperties> = {
   root: {
     minHeight: "100vh",
