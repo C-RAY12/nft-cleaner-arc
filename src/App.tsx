@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { AppKit } from "@circle-fin/app-kit";
 import { createAdapter } from "@circle-fin/adapter-viem-v2";
-import { createWalletClient, custom } from "viem";
+import { createWalletClient, custom, encodeAbiParameters } from "viem";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const TREASURY = "0x64D868100191D920D8d52F05F91462Bc702ba0ba";
@@ -190,11 +190,9 @@ export default function App() {
         [key]: { ...prev[key], status: "error", error: e.message ?? "Swap failed" },
       }));
     }
-  };
-
-  // ─── Burn (zero-bid NFTs) ─────────────────────────────────────────────────
+  };  // ─── Burn (zero-bid NFTs) ─────────────────────────────────────────────────
   const handleBurn = async (nft: NFT) => {
-    if (!walletClient) return;
+    if (!walletClient || !walletAddress) return;
     const key = `${nft.contract}-${nft.tokenId}`;
 
     setActions((prev) => ({
@@ -203,13 +201,13 @@ export default function App() {
     }));
 
     try {
-      // Send NFT to the burn address (0x000...dEaD) via a direct contract call
       const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
 
-      // ERC-721 safeTransferFrom
-      const data = encodeERC721Transfer(walletAddress!, BURN_ADDRESS, BigInt(nft.tokenId));
+      // Encodes the safeTransferFrom data to move the NFT to the burn address
+      const data = encodeERC721Transfer(walletAddress as `0x${string}`, BURN_ADDRESS, BigInt(nft.tokenId));
+
       const txHash = await walletClient.sendTransaction({
-        to: nft.contract as `0x${string}`,
+        to: nft.contract as 0x${string},
         data,
       });
 
@@ -224,11 +222,7 @@ export default function App() {
       }));
     }
   };
-
-  // ─── Bulk actions ─────────────────────────────────────────────────────────
-  const handleBulkAction = async () => {
-    const selected = nfts.filter((n) => selectedIds.has(`${n.contract}-${n.tokenId}`));
-    for (const nft of selected) {
+const nft of selected) {
       if (nft.hasBid) await handleRecycle(nft);
       else await handleBurn(nft);
     }
