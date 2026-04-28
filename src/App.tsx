@@ -89,13 +89,13 @@ export default function App() {
 
     try {
       // Fetch tokens owned by wallet from Reservoir
-      const { data } = await axios.get(`${RESERVOIR_BASE}/users/${walletAddress}/tokens/v7`, {
-        params: {
-          limit: 50,
-          includeTopBid: true,
-          includeAttributes: false,
-        },
-      });
+        const { data } = await axios.get(`${RESERVOIR_BASE}/users/${walletAddress}/tokens/v7`, {
+      params: {
+        limit: 50,
+        includeTopBid: true,
+        includeAttributes: false,
+      },
+    });
 
       const tokens: NFT[] = (data.tokens ?? []).map((t: any) => {
         const token = t.token;
