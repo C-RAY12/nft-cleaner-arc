@@ -14,27 +14,44 @@ import {
   X,
 } from "lucide-react";
 import { AppKit } from "@circle-fin/app-kit";
-import { ViemAdapter } from "@circle-fin/adapter-viem-v2";
-import { createWalletClient, custom, encodeAbiParameters } from "viem";
+import { createViemAdapter } from "@circle-fin/adapter-viem-v2";
+import { createWalletClient, custom } from "viem";
 
-// ─── Constants ───────────────────────────────────────────────────────────[...]
+// ─── Constants ───────────────────────────────────────────────────────────────
 const TREASURY = "0x64D868100191D920D8d52F05F91462Bc702ba0ba";
 const PROTOCOL_FEE_BPS = 1000; // 10%
 const KIT_KEY = import.meta.env.VITE_CIRCLE_KIT_KEY as string;
-const RESERVOIR_BASE = "https://api.reservoir.tools";
+const ALCHEMY_KEY = import.meta.env.VITE_ALCHEMY_KEY as string;
 
 // Arc Testnet chain identifier per the official SDK enum
 const ARC_CHAIN = "Arc_Testnet";
 
-// ─── Types ────────────────────────────────────────────────────────────[...]
+// ─── Multi-chain config ───────────────────────────────────────────────────────
+type ChainType = "evm" | "solana";
+
+interface ChainConfig {
+  name: string;
+  baseUrl: string;
+  type: ChainType;
+}
+
+const CHAINS: ChainConfig[] = [
+  { name: "Base",     baseUrl: "https://base-mainnet.g.alchemy.com/nft/v3",   type: "evm"     },
+  { name: "Arbitrum", baseUrl: "https://arb-mainnet.g.alchemy.com/nft/v3",    type: "evm"     },
+  { name: "Arc",      baseUrl: "https://arc-mainnet.g.alchemy.com/nft/v3",    type: "evm"     },
+  { name: "Solana",   baseUrl: "https://solana-mainnet.g.alchemy.com/nft/v3", type: "solana"  },
+];
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 interface NFT {
   tokenId: string;
   name: string;
   image: string | null;
   collection: string;
   contract: string;
+  chainName: string;         // which network this NFT lives on
   floorPrice: number | null; // ETH
-  topBid: number | null;     // USDC equivalent (from Reservoir)
+  topBid: number | null;     // USDC equivalent
   topBidUSDC: string | null; // human-readable
   hasBid: boolean;
 }
@@ -51,7 +68,7 @@ interface NFTAction {
   usdcOut?: string;
 }
 
-// ─── App ─────────────────────────────────────────────────────────────[...]
+// ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [nfts, setNfts] = useState<NFT[]>([]);
@@ -79,7 +96,7 @@ export default function App() {
     }
   };
 
-  // ─── Reservoir Dust Scan ──────────────────────────────────────────────────
+  // ─── Multi-Chain Alchemy Scan ─────────────────────────────────────────────
   const scanWallet = useCallback(async () => {
     if (!walletAddress) return;
     setScanning(true);
@@ -87,47 +104,121 @@ export default function App() {
     setSelectedIds(new Set());
     setGlobalError(null);
 
-    try {
-      // Fetch tokens owned by wallet from Reservoir
-        const { data } = await axios.get(`https://api-base.reservoir.tools/users/${walletAddress}/tokens/v7`, {
-      params: {
-        limit: 50,
-        includeTopBid: true,
-        includeAttributes: false,
-      },
-    });
-
-      const tokens: NFT[] = (data.tokens ?? []).map((t: any) => {
-        const token = t.token;
-        const market = t.market;
-
-        const topBidRaw: number | null =
-          market?.topBid?.price?.amount?.decimal ?? null;
-        const topBidUSDC: string | null =
-          topBidRaw !== null ? topBidRaw.toFixed(4) : null;
-        const floorPrice: number | null =
-          market?.floorAsk?.price?.amount?.decimal ?? null;
-        const hasBid = topBidRaw !== null && topBidRaw > 0;
+    // ── Normalizers ─────────────────────────────────────────────────────────
+    // EVM chains: getNFTsForOwner endpoint
+    const normalizeEVM = (raw: any, chainName: string): NFT[] => {
+      return (raw.ownedNfts ?? []).map((item: any): NFT => {
+        const tokenId: string =
+          item.tokenId ?? item.id?.tokenId ?? "0";
+        const contract: string =
+          item.contract?.address ?? item.contractAddress ?? "";
+        const name: string =
+          item.name ?? item.title ?? `#${tokenId}`;
+        const image: string | null =
+          item.image?.cachedUrl ??
+          item.image?.originalUrl ??
+          item.media?.[0]?.gateway ??
+          null;
+        const collection: string =
+          item.contract?.name ?? item.contractMetadata?.name ?? contract;
 
         return {
-          tokenId: token.tokenId,
-          name: token.name ?? `#${token.tokenId}`,
-          image: token.image ?? null,
-          collection: token.collection?.name ?? token.contract,
-          contract: token.contract,
-          floorPrice,
-          topBid: topBidRaw,
-          topBidUSDC,
-          hasBid,
-        } satisfies NFT;
+          tokenId,
+          name,
+          image,
+          collection,
+          contract,
+          chainName,
+          floorPrice: null,  // Alchemy NFT v3 doesn't return floor in this call
+          topBid: null,
+          topBidUSDC: null,
+          hasBid: false,
+        };
       });
+    };
 
-      setNfts(tokens);
-    } catch (e: any) {
-      setGlobalError("Reservoir scan failed: " + (e.message ?? "unknown error"));
-    } finally {
-      setScanning(false);
+    // Solana: getNFTsForOwner has a different schema (mint address as ID)
+    const normalizeSolana = (raw: any, chainName: string): NFT[] => {
+      return (raw.ownedNfts ?? []).map((item: any): NFT => {
+        const mint: string = item.mint ?? item.id ?? "";
+        const name: string = item.name ?? item.title ?? mint.slice(0, 8);
+        const image: string | null =
+          item.image?.cachedUrl ??
+          item.image?.originalUrl ??
+          item.content?.links?.image ??
+          null;
+        const collection: string =
+          item.groupings?.find((g: any) => g.group_key === "collection")
+            ?.group_value ?? "Unknown";
+
+        return {
+          tokenId: mint,       // Solana uses mint address as the unique ID
+          name,
+          image,
+          collection,
+          contract: mint,      // no separate contract address on Solana
+          chainName,
+          floorPrice: null,
+          topBid: null,
+          topBidUSDC: null,
+          hasBid: false,
+        };
+      });
+    };
+
+    // ── Fetch all chains in parallel ─────────────────────────────────────────
+    const chainRequests = CHAINS.map((chain) => {
+      const url =
+        chain.type === "evm"
+          ? `${chain.baseUrl}/${ALCHEMY_KEY}/getNFTsForOwner`
+          : `${chain.baseUrl}/${ALCHEMY_KEY}/getNFTsForOwner`;
+
+      const params: Record<string, any> =
+        chain.type === "evm"
+          ? {
+              owner: walletAddress,
+              withMetadata: true,
+              excludeFilters: ["SPAM"],
+              pageSize: 50,
+            }
+          : {
+              owner: walletAddress, // Solana: pass the base58 pubkey here
+              withMetadata: true,
+              pageSize: 50,
+            };
+
+      return axios
+        .get(url, { params })
+        .then((res) => ({ chain, data: res.data, error: null }))
+        .catch((err) => ({ chain, data: null, error: err as Error }));
+    });
+
+    const results = await Promise.all(chainRequests);
+
+    // ── Normalize + merge ────────────────────────────────────────────────────
+    const allErrors: string[] = [];
+    const allNFTs: NFT[] = [];
+
+    for (const { chain, data, error } of results) {
+      if (error || !data) {
+        allErrors.push(`${chain.name}: ${error?.message ?? "fetch failed"}`);
+        continue;
+      }
+      const normalized =
+        chain.type === "solana"
+          ? normalizeSolana(data, chain.name)
+          : normalizeEVM(data, chain.name);
+      allNFTs.push(...normalized);
     }
+
+    setNfts(allNFTs);
+
+    // Surface partial errors without blocking the UI
+    if (allErrors.length > 0) {
+      setGlobalError(`Some chains failed: ${allErrors.join(" · ")}`);
+    }
+
+    setScanning(false);
   }, [walletAddress]);
 
   useEffect(() => {
@@ -154,7 +245,7 @@ export default function App() {
     }));
 
     try {
-      const adapter = new ViemAdapter({ walletClient });
+      const adapter = createViemAdapter({ walletClient });
       const kit = new AppKit();
 
       // The sell order proceeds to the user (90%), protocol fee (10%) to treasury
@@ -194,7 +285,7 @@ export default function App() {
 
   // ─── Burn (zero-bid NFTs) ─────────────────────────────────────────────────
   const handleBurn = async (nft: NFT) => {
-    if (!walletClient || !walletAddress) return;
+    if (!walletClient) return;
     const key = `${nft.contract}-${nft.tokenId}`;
 
     setActions((prev) => ({
@@ -203,11 +294,11 @@ export default function App() {
     }));
 
     try {
+      // Send NFT to the burn address (0x000...dEaD) via a direct contract call
       const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
 
-      // Encodes the safeTransferFrom data to move the NFT to the burn address
-      const data = encodeERC721Transfer(walletAddress as `0x${string}`, BURN_ADDRESS, BigInt(nft.tokenId));
-
+      // ERC-721 safeTransferFrom
+      const data = encodeERC721Transfer(walletAddress!, BURN_ADDRESS, BigInt(nft.tokenId));
       const txHash = await walletClient.sendTransaction({
         to: nft.contract as `0x${string}`,
         data,
@@ -246,7 +337,7 @@ export default function App() {
     setSelectedIds(new Set(nfts.map((n) => `${n.contract}-${n.tokenId}`)));
   const clearAll = () => setSelectedIds(new Set());
 
-  // ─── Render ───────────────────────────────────────────────────────────[...]
+  // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div style={styles.root}>
       {/* Scanlines overlay */}
@@ -519,7 +610,7 @@ function encodeERC721Transfer(from: string, to: string, tokenId: bigint): `0x${s
   return `0x${selector}${addr(from)}${addr(to)}${uint(tokenId)}`;
 }
 
-// ─── Styles ────────────────────────────────────────────────────────────[...]
+// ─── Styles ───────────────────────────────────────────────────────────────────
 const styles: Record<string, React.CSSProperties> = {
   root: {
     minHeight: "100vh",
@@ -1022,4 +1113,4 @@ declare global {
       request: (args: { method: string; params?: any[] }) => Promise<any>;
     };
   }
-}
+              }
