@@ -36,10 +36,26 @@ interface ChainConfig {
 }
 
 const CHAINS: ChainConfig[] = [
-  { name: "Base",     baseUrl: "https://base-mainnet.g.alchemy.com/nft/v3",   type: "evm"     },
-  { name: "Arbitrum", baseUrl: "https://arb-mainnet.g.alchemy.com/nft/v3",    type: "evm"     },
-  { name: "Arc",      baseUrl: "https://arc-mainnet.g.alchemy.com/nft/v3",    type: "evm"     },
-  { name: "Solana",   baseUrl: "https://solana-mainnet.g.alchemy.com/nft/v3", type: "solana"  },
+  { 
+    name: "Base",     
+    baseUrl: "https://base-mainnet.g.alchemy.com/nft/v3", 
+    type: "evm" 
+  },
+  { 
+    name: "Arbitrum", 
+    baseUrl: "https://arb-mainnet.g.alchemy.com/nft/v3",  
+    type: "evm" 
+  },
+  { 
+    name: "Solana",   
+    baseUrl: "https://solana-mainnet.g.alchemy.com/nft/v3", 
+    type: "solana" 
+  },
+  { 
+    name: "Arc",      
+    baseUrl: "https://arc-mainnet.g.alchemy.com/nft/v3",   
+    type: "evm" 
+  },
 ];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
