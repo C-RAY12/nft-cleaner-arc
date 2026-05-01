@@ -14,7 +14,8 @@ import {
   X,
 } from "lucide-react";
 import { AppKit } from "@circle-fin/app-kit";
-import { createViemAdapter } from "@circle-fin/adapter-viem-v2";
+// Change this line
+import { createViemAdapterFromProvider } from "@circle-fin/adapter-viem-v2";
 import { createWalletClient, custom } from "viem";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -261,7 +262,7 @@ export default function App() {
     }));
 
     try {
-      const adapter = createViemAdapter({ walletClient });
+      const adapter = await createViemAdapterFromProvider({ provider: window.ethereum });
       const kit = new AppKit();
 
       // The sell order proceeds to the user (90%), protocol fee (10%) to treasury
