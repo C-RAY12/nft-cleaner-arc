@@ -618,14 +618,13 @@ export default function App() {
   );
 };
 
-// ─── ERC-721 safeTransferFrom ABI encode (minimal) ───────────────────────────
-function encodeERC721Transfer(from: string, to: string, tokenId: bigint): `0x${string}` {
-  // safeTransferFrom(address,address,uint256) selector = 0x42842e0e
+// --- ERC-721 safeTransferFrom ABI encode (minimal)
+function encodeERC721Transfer(from: string, to: string, tokenId: bigint): string {
   const selector = "42842e0e";
   const pad = (hex: string) => hex.padStart(64, "0");
   const addr = (a: string) => pad(a.toLowerCase().replace("0x", ""));
   const uint = (n: bigint) => pad(n.toString(16));
-  return `0x${selector}${addr(from)}${addr(to)}${uint(tokenId)}`;
+  return "0x" + selector + addr(from) + addr(to) + uint(tokenId);
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
