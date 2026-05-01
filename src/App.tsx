@@ -356,9 +356,10 @@ export default function App() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
-    <div style={styles.root}>
-      {/* Scanlines overlay */}
-      <div style={styles.scanlines} />
+        <div style={styles.root}>
+      <div style={{ backgroundColor: 'rgba(127, 29, 29, 0.2)', border: '1px solid rgba(239, 68, 68, 0.5)', padding: '12px', marginBottom: '16px', borderRadius: '4px', fontSize: '12px', color: '#fecaca' }}>
+        ⚠️ Warning: Scam NFTs detected. Do not click external links in NFT descriptions. Use only Burn or Recycle buttons.
+      
 
       {/* Header */}
       <header style={styles.header}>
