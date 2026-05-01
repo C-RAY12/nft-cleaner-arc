@@ -613,10 +613,10 @@ export default function App() {
           from { opacity: 0; transform: translateY(12px); }
           to   { opacity: 1; transform: translateY(0); }
         }
-      `}</style>
+      }</style>
     </div>
   );
-}
+};
 
 // ─── ERC-721 safeTransferFrom ABI encode (minimal) ───────────────────────────
 function encodeERC721Transfer(from: string, to: string, tokenId: bigint): `0x${string}` {
