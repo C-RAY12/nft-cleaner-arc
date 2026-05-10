@@ -94,6 +94,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [walletClient, setWalletClient] = useState<ReturnType<typeof createWalletClient> | null>(null);
+  const [chainStatuses, setChainStatuses] = useState<Record<string, {status: 'loading' | 'success' | 'error', error?: string}>>({});
 
   // ─── Wallet Connection ────────────────────────────────────────────────────
   const connectWallet = async () => {
@@ -125,6 +126,10 @@ export default function App() {
     setNfts([]);
     setSelectedIds(new Set());
     setGlobalError(null);
+    setChainStatuses({});
+    CHAINS.forEach(chain => {
+      setChainStatuses(prev => ({...prev, [chain.name]: {status: 'loading'}}));
+    });
 
     // ── Normalizers ─────────────────────────────────────────────────────────
     // EVM chains: getNFTsForOwner endpoint
@@ -212,8 +217,17 @@ export default function App() {
           params,
           headers: { "X-Alchemy-Token": ALCHEMY_KEY },
         });
+        setChainStatuses(prev => ({...prev, [chain.name]: {status: 'success'}}));
         return { chain, data: response.data, error: null };
       } catch (err: any) {
+        const errorMessage = axios.isAxiosError(err)
+          ? err.response?.status === 401
+            ? "Not Authorized"
+            : err.response?.status === 400
+            ? "Bad Request"
+            : err.message ?? "fetch failed"
+          : err?.message ?? "fetch failed";
+        setChainStatuses(prev => ({...prev, [chain.name]: {status: 'error', error: errorMessage}}));
         return { chain, data: null, error: err };
       }
     };
@@ -221,21 +235,10 @@ export default function App() {
     const results = await Promise.all(CHAINS.map(fetchChain));
 
     // ── Normalize + merge ────────────────────────────────────────────────────
-    const allErrors: string[] = [];
     const allNFTs: NFT[] = [];
 
     for (const { chain, data, error } of results) {
       if (error || !data) {
-        const errorMessage = axios.isAxiosError(error)
-          ? error.response?.status === 401
-            ? "unauthorized"
-            : error.response?.status === 400
-            ? "Network Busy"
-            : error.response?.status === 404
-            ? "endpoint not found"
-            : error.message ?? "fetch failed"
-          : error?.message ?? "fetch failed";
-        allErrors.push(`${chain.name}: ${errorMessage}`);
         continue;
       }
       const normalized =
@@ -246,19 +249,6 @@ export default function App() {
     }
 
     setNfts(allNFTs);
-
-    // Surface partial errors without blocking the UI
-    if (allErrors.length > 0) {
-      const networkBusy = allErrors.some((msg) => msg.includes("Network Busy"));
-      const authIssue = allErrors.some((msg) => msg.includes("unauthorized"));
-      setGlobalError(
-        networkBusy
-          ? "Network Busy. Please wait a moment and retry."
-          : authIssue
-          ? "Some networks are not authorized. Verify your Alchemy credentials and retry."
-          : `Some chains failed: ${allErrors.join(" · ")}. Retry to refresh.`
-      );
-    }
 
     setScanning(false);
   }, [walletAddress]);
@@ -425,6 +415,22 @@ export default function App() {
             <button onClick={() => setGlobalError(null)} style={styles.closeBtn}>
               <X size={13} />
             </button>
+          </div>
+        )}
+
+        {/* Chain status bar */}
+        {Object.keys(chainStatuses).length > 0 && (
+          <div style={styles.chainStatusBar}>
+            {CHAINS.map(chain => {
+              const status = chainStatuses[chain.name];
+              if (!status) return null;
+              return (
+                <div key={chain.name} style={{...styles.chainBadge, ...(status.status === 'error' ? styles.chainBadgeError : status.status === 'success' ? styles.chainBadgeSuccess : styles.chainBadgeLoading)}}>
+                  {chain.name}
+                  {status.status === 'error' && ` (${status.error})`}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -1186,6 +1192,35 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 11,
     color: "#223344",
     letterSpacing: "0.08em",
+  },
+  chainStatusBar: {
+    display: "flex",
+    gap: 8,
+    marginBottom: 24,
+    flexWrap: "wrap",
+  },
+  chainBadge: {
+    padding: "4px 8px",
+    borderRadius: 4,
+    fontSize: 12,
+    fontFamily: "'Share Tech Mono', monospace",
+    letterSpacing: "0.05em",
+    border: "1px solid #1a2830",
+    background: "#0d1117",
+    color: "#6a7f8a",
+  },
+  chainBadgeSuccess: {
+    borderColor: "#00ffcc44",
+    background: "#00ffcc11",
+    color: "#00ffcc",
+  },
+  chainBadgeError: {
+    borderColor: "#ff224444",
+    background: "#ff224411",
+    color: "#ff6655",
+  },
+  chainBadgeLoading: {
+    color: "#00ffcc88",
   },
 };
 
