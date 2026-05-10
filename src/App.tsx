@@ -102,7 +102,9 @@ export default function App() {
   // ─── Wallet Connection ────────────────────────────────────────────────────
   const connectWallet = async () => {
     try {
-      if (!window.ethereum) throw new Error("No EVM wallet found. Install MetaMask or similar.");
+      if (!window.ethereum) {
+        throw new Error("No EVM wallet detected. Please install MetaMask or another Web3 wallet.");
+      }
       const [address] = await window.ethereum.request({ method: "eth_requestAccounts" });
       setWalletAddress(address);
 
@@ -200,7 +202,9 @@ export default function App() {
     const getChainUrl = (chain: ChainConfig) =>
       chain.type === "solana"
         ? `https://solana-mainnet.g.alchemy.com/nft/v2/${ALCHEMY_KEY}/getNFTs`
-        : `${chain.baseUrl}/getNFTsForOwner`;
+        : chain.type === "arc"
+        ? chain.baseUrl
+        : `${chain.baseUrl}/${ALCHEMY_KEY}/getNFTsForOwner`;
 
     const fetchChain = async (chain: ChainConfig) => {
       if (chain.type === "arc") {
@@ -256,7 +260,7 @@ export default function App() {
       try {
         const response = await axios.get(url, {
           params,
-          headers: { "X-Alchemy-Token": ALCHEMY_KEY },
+          headers: chain.type === "arc" ? {} : { "X-Alchemy-Token": ALCHEMY_KEY },
         });
         setChainStatuses(prev => ({...prev, [chain.name]: {status: 'success'}}));
         return { chain, data: response.data, error: null };
