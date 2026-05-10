@@ -273,7 +273,7 @@ export default function App() {
       const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
       const burnData = encodeERC721Transfer(walletAddress!, BURN_ADDRESS, tokenId);
       
-      // Estimate gas with 20% buffer
+      // Estimate gas with 30% buffer and minimum 150k
       const gasEstimate = await (window as any).ethereum?.request({
         method: "eth_estimateGas",
         params: [{
@@ -283,8 +283,8 @@ export default function App() {
         }],
       });
       
-      const gasWithBuffer = Math.ceil(parseInt(gasEstimate, 16) * 1.2);
-      const gasLimit = "0x" + gasWithBuffer.toString(16);
+      const gasWithBuffer = Math.ceil(parseInt(gasEstimate, 16) * 1.3);
+      const gasLimit = "0x" + Math.max(150000, gasWithBuffer).toString(16);
 
       // Send burn transaction
       const txHash = await walletClient.sendTransaction({
@@ -301,7 +301,7 @@ export default function App() {
       // Parse detailed error message
       let errorMsg = "Burn failed";
       if (e?.data?.message) {
-        errorMsg = e.data.message;
+        errorMsg = `Revert: ${e.data.message}`;
       } else if (e?.message?.includes("Ownership Error")) {
         errorMsg = e.message;
       } else if (e?.message?.includes("reverted")) {
@@ -311,6 +311,7 @@ export default function App() {
       }
       
       console.error(`Burn error for token ${nft.tokenId}:`, e);
+      console.error("Full error object:", JSON.stringify(e, null, 2));
       setActions((prev) => ({
         ...prev,
         [key]: { ...prev[key], status: "error", error: errorMsg },
