@@ -116,6 +116,11 @@ export default function App() {
   // ─── Multi-Chain Alchemy Scan ─────────────────────────────────────────────
   const scanWallet = useCallback(async () => {
     if (!walletAddress) return;
+    if (!ALCHEMY_KEY) {
+      setGlobalError("Missing Alchemy API key. Please set VITE_ALCHEMY_KEY and reload the app.");
+      return;
+    }
+
     setScanning(true);
     setNfts([]);
     setSelectedIds(new Set());
@@ -205,9 +210,9 @@ export default function App() {
             };
 
       return axios
-        .get(url, { params })
+        .get(url, { params, headers: { "X-Alchemy-Token": ALCHEMY_KEY } })
         .then((res) => ({ chain, data: res.data, error: null }))
-        .catch((err) => ({ chain, data: null, error: err as Error }));
+        .catch((err) => ({ chain, data: null, error: err }));
     });
 
     const results = await Promise.all(chainRequests);
@@ -218,7 +223,14 @@ export default function App() {
 
     for (const { chain, data, error } of results) {
       if (error || !data) {
-        allErrors.push(`${chain.name}: ${error?.message ?? "fetch failed"}`);
+        const errorMessage = axios.isAxiosError(error)
+          ? error.response?.status === 401
+            ? "unauthorized"
+            : error.response?.status === 404
+            ? "endpoint not found"
+            : error.message ?? "fetch failed"
+          : error?.message ?? "fetch failed";
+        allErrors.push(`${chain.name}: ${errorMessage}`);
         continue;
       }
       const normalized =
@@ -232,7 +244,12 @@ export default function App() {
 
     // Surface partial errors without blocking the UI
     if (allErrors.length > 0) {
-      setGlobalError(`Some chains failed: ${allErrors.join(" · ")}`);
+      const authIssue = allErrors.some((msg) => msg.includes("unauthorized"));
+      setGlobalError(
+        authIssue
+          ? "Some networks are not authorized. Verify your Alchemy credentials and retry."
+          : `Some chains failed: ${allErrors.join(" · ")}. Retry to refresh.`
+      );
     }
 
     setScanning(false);
@@ -357,9 +374,6 @@ export default function App() {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
         <div style={styles.root}>
-      <div style={{ backgroundColor: 'rgba(127, 29, 29, 0.2)', border: '1px solid rgba(239, 68, 68, 0.5)', padding: '12px', marginBottom: '16px', borderRadius: '4px', fontSize: '12px', color: '#fecaca' }}>
-        ⚠️ Warning: Scam NFTs detected. Do not click external links in NFT descriptions. Use only Burn or Recycle buttons.
-      </div>
 
       {/* Header */}
       <header style={styles.header}>
@@ -395,6 +409,11 @@ export default function App() {
           <div style={styles.errorBanner}>
             <AlertTriangle size={15} />
             <span>{globalError}</span>
+            {walletAddress && !scanning && (
+              <button onClick={scanWallet} style={styles.retryBtn}>
+                Retry
+              </button>
+            )}
             <button onClick={() => setGlobalError(null)} style={styles.closeBtn}>
               <X size={13} />
             </button>
@@ -440,7 +459,7 @@ export default function App() {
         {scanning && (
           <div style={styles.scannerState}>
             <Loader2 size={32} color="#00ffcc" style={{ animation: "spin 1s linear infinite" }} />
-            <p style={styles.scanText}>Scanning wallet via Reservoir…</p>
+            <p style={styles.scanText}>Scanning wallet via Alchemy…</p>
           </div>
         )}
 
@@ -930,6 +949,18 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 14,
     letterSpacing: "0.06em",
     cursor: "pointer",
+  },
+  retryBtn: {
+    background: "#00ffcc",
+    border: "none",
+    color: "#080b0e",
+    borderRadius: 4,
+    padding: "8px 12px",
+    fontFamily: "'Rajdhani', sans-serif",
+    fontWeight: 700,
+    fontSize: 12,
+    cursor: "pointer",
+    marginLeft: 12,
   },
   grid: {
     display: "grid",
