@@ -13,25 +13,14 @@ import {
   Shield,
   X,
 } from "lucide-react";
-import { AppKit } from "@circle-fin/app-kit";
-// Change this line
-import { createViemAdapterFromProvider } from "@circle-fin/adapter-viem-v2";
 import { createWalletClient, custom } from "viem";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const TREASURY = "0x64D868100191D920D8d52F05F91462Bc702ba0ba";
-const PROTOCOL_FEE_BPS = 1000; // 10%
-const KIT_KEY = import.meta.env.VITE_CIRCLE_KIT_KEY as string;
 const ALCHEMY_KEY = import.meta.env.VITE_ALCHEMY_KEY as string;
 
-// Arc Testnet chain identifier per the official SDK enum
-const ARC_CHAIN = "Arc_Testnet";
-const ARC_RPC = "https://rpc.testnet.arc.network";
-const ARC_CHAIN_ID = 5042002;
-const ARC_GAS_TOKEN = "USDC";
-
 // ─── Multi-chain config ───────────────────────────────────────────────────────
-type ChainType = "evm" | "solana" | "arc";
+type ChainType = "evm";
 
 interface ChainConfig {
   name: string;
@@ -49,16 +38,6 @@ const CHAINS: ChainConfig[] = [
     name: "Arbitrum", 
     baseUrl: "https://arb-mainnet.g.alchemy.com/nft/v3",  
     type: "evm" 
-  },
-  { 
-    name: "Solana",   
-    baseUrl: "https://solana-mainnet.g.alchemy.com", 
-    type: "solana" 
-  },
-  { 
-    name: "Arc",      
-    baseUrl: ARC_RPC,
-    type: "arc"
   },
 ];
 
@@ -81,11 +60,10 @@ type ActionStatus = "idle" | "pending" | "success" | "error";
 interface NFTAction {
   tokenId: string;
   contract: string;
-  type: "recycle" | "burn";
+  type: "burn";
   status: ActionStatus;
   txHash?: string;
   error?: string;
-  usdcOut?: string;
 }
 
 // ─── App ──────────────────────────────────────────────────────────────────────
@@ -169,98 +147,23 @@ export default function App() {
       });
     };
 
-    // Solana: getNFTsForOwner has a different schema (mint address as ID)
-    const normalizeSolana = (raw: any, chainName: string): NFT[] => {
-      return (raw.ownedNfts ?? []).map((item: any): NFT => {
-        const mint: string = item.mint ?? item.id ?? "";
-        const name: string = item.name ?? item.title ?? mint.slice(0, 8);
-        const image: string | null =
-          item.image?.cachedUrl ??
-          item.image?.originalUrl ??
-          item.content?.links?.image ??
-          null;
-        const collection: string =
-          item.groupings?.find((g: any) => g.group_key === "collection")
-            ?.group_value ?? "Unknown";
-
-        return {
-          tokenId: mint,       // Solana uses mint address as the unique ID
-          name,
-          image,
-          collection,
-          contract: mint,      // no separate contract address on Solana
-          chainName,
-          floorPrice: null,
-          topBid: null,
-          topBidUSDC: null,
-          hasBid: false,
-        };
-      });
-    };
-
     // ── Fetch all chains in parallel ─────────────────────────────────────────
     const getChainUrl = (chain: ChainConfig) =>
-      chain.type === "solana"
-        ? `https://solana-mainnet.g.alchemy.com/nft/v2/${ALCHEMY_KEY}/getNFTs`
-        : chain.type === "arc"
-        ? chain.baseUrl
-        : `${chain.baseUrl}/${ALCHEMY_KEY}/getNFTsForOwner`;
+      `${chain.baseUrl}/${ALCHEMY_KEY}/getNFTsForOwner`;
 
     const fetchChain = async (chain: ChainConfig) => {
-      if (chain.type === "arc") {
-        try {
-          // Arc testnet uses USDC as gas token and is available via a public RPC endpoint.
-          const response = await axios.post(
-            chain.baseUrl,
-            {
-              jsonrpc: "2.0",
-              method: "eth_chainId",
-              params: [],
-              id: 1,
-            },
-            { timeout: 6000 }
-          );
-
-          const chainId = parseInt(response.data.result, 16);
-          if (chainId !== ARC_CHAIN_ID) {
-            throw new Error(`Unexpected chain ID: ${response.data.result}`);
-          }
-
-          setChainStatuses(prev => ({ ...prev, [chain.name]: { status: 'success' } }));
-          return { chain, data: null, error: null };
-        } catch (err: any) {
-          const warnMessage = 'Arc assets loading... Use Arcscan to view';
-          console.warn('Arc RPC fetch failed', err);
-          setChainStatuses(prev => ({
-            ...prev,
-            [chain.name]: {
-              status: 'warn',
-              error: warnMessage,
-            },
-          }));
-          return { chain, data: null, error: err };
-        }
-      }
-
       const url = getChainUrl(chain);
-      const params: Record<string, any> =
-        chain.type === "evm"
-          ? {
-              owner: walletAddress,
-              withMetadata: true,
-              excludeFilters: ["SPAM"],
-              pageSize: 50,
-            }
-          : {
-              owner: walletAddress, // Solana: pass the base58 pubkey here
-              withMetadata: true,
-              pageSize: 50,
-            };
+      const params: Record<string, any> = {
+        owner: walletAddress,
+        withMetadata: true,
+        excludeFilters: ["SPAM"],
+        pageSize: 50,
+      };
 
       try {
         const response = await axios.get(url, {
           params,
-          headers: chain.type === "arc" ? {} : { "X-Alchemy-Token": ALCHEMY_KEY },
+          headers: { "X-Alchemy-Token": ALCHEMY_KEY },
         });
         setChainStatuses(prev => ({...prev, [chain.name]: {status: 'success'}}));
         return { chain, data: response.data, error: null };
@@ -298,10 +201,7 @@ export default function App() {
       if (error || !data) {
         continue;
       }
-      const normalized =
-        chain.type === "solana"
-          ? normalizeSolana(data, chain.name)
-          : normalizeEVM(data, chain.name);
+      const normalized = normalizeEVM(data, chain.name);
       allNFTs.push(...normalized);
     }
 
@@ -314,64 +214,6 @@ export default function App() {
     if (walletAddress) scanWallet();
   }, [walletAddress, scanWallet]);
 
-  // ─── Revenue-split calculation ────────────────────────────────────────────
-  const calcSplit = (topBidUSDC: string) => {
-    const total = parseFloat(topBidUSDC);
-    const fee = +(total * (PROTOCOL_FEE_BPS / 10000)).toFixed(4);
-    const userGet = +(total - fee).toFixed(4);
-    return { fee, userGet };
-  };
-
-  // ─── Arc Swap Kit – Recycle (bid fulfillment + fee split) ─────────────────
-  const handleRecycle = async (nft: NFT) => {
-    if (!walletClient || !nft.topBid || !nft.topBidUSDC) return;
-    const key = `${nft.contract}-${nft.tokenId}`;
-    const { userGet, fee } = calcSplit(nft.topBidUSDC);
-
-    setActions((prev) => ({
-      ...prev,
-      [key]: { tokenId: nft.tokenId, contract: nft.contract, type: "recycle", status: "pending" },
-    }));
-
-    try {
-      const adapter = await createViemAdapterFromProvider({ provider: window.ethereum });
-      const kit = new AppKit();
-
-      // The sell order proceeds to the user (90%), protocol fee (10%) to treasury
-      // We use kit.swap to execute the sell order and apply the revenue share
-      const result = await kit.swap({
-        from: { adapter, chain: ARC_CHAIN },
-        tokenIn: "USDC",   // sell NFT for USDC
-        tokenOut: "USDC",  // output token (net to user)
-        amountIn: nft.topBidUSDC,
-        config: {
-          kitKey: KIT_KEY,
-          slippageBps: 50,
-          customFee: {
-            // 10% fee routed to treasury
-            percentage: PROTOCOL_FEE_BPS / 100, // SDK expects percentage as number
-            recipientAddress: TREASURY,
-          },
-        },
-      });
-
-      setActions((prev) => ({
-        ...prev,
-        [key]: {
-          ...prev[key],
-          status: "success",
-          txHash: result.txHash,
-          usdcOut: String(userGet),
-        },
-      }));
-    } catch (e: any) {
-      setActions((prev) => ({
-        ...prev,
-        [key]: { ...prev[key], status: "error", error: e.message ?? "Swap failed" },
-      }));
-    }
-  };
-
   // ─── Burn (zero-bid NFTs) ─────────────────────────────────────────────────
   const handleBurn = async (nft: NFT) => {
     if (!walletClient) return;
@@ -383,55 +225,72 @@ export default function App() {
     }));
 
     try {
-      // Validate ownership and gas before attempting burn
-      const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
-      const tokenId = BigInt(nft.tokenId);
-
-      // Encode ownerOf check to verify ownership
-      // function ownerOf(uint256 tokenId) public view returns (address owner)
+      // Validate ownership
       const ownerOfSelector = "6352211e"; // keccak256("ownerOf(uint256)")
+      const tokenId = BigInt(nft.tokenId);
       const ownerOfData = "0x" + ownerOfSelector + tokenId.toString(16).padStart(64, "0");
       
-      let ownerCheck: any;
-      try {
-        ownerCheck = await (window as any).ethereum?.request({
-          method: "eth_call",
-          params: [{
-            to: nft.contract as `0x${string}`,
-            data: ownerOfData,
-          }, "latest"],
-        });
-      } catch (ownerErr: any) {
-        console.warn("Ownership check failed (contract may not support ownerOf)", ownerErr);
+      const ownerResult = await (window as any).ethereum?.request({
+        method: "eth_call",
+        params: [{
+          to: nft.contract as `0x${string}`,
+          data: ownerOfData,
+        }, "latest"],
+      });
+      
+      const owner = "0x" + ownerResult.slice(-40).toLowerCase();
+      if (owner !== walletAddress?.toLowerCase()) {
+        throw new Error("Ownership Error: You do not own this NFT");
       }
 
-      // Encode ERC-721 safeTransferFrom
+      // Check approval for treasury
+      const isApprovedSelector = "e985e9c5"; // keccak256("isApprovedForAll(address,address)")
+      const isApprovedData = "0x" + isApprovedSelector + 
+        walletAddress!.slice(2).padStart(64, "0") + 
+        TREASURY.slice(2).padStart(64, "0");
+      
+      const approvedResult = await (window as any).ethereum?.request({
+        method: "eth_call",
+        params: [{
+          to: nft.contract as `0x${string}`,
+          data: isApprovedData,
+        }, "latest"],
+      });
+      
+      if (approvedResult === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+        // Not approved, send approval transaction
+        const setApprovalSelector = "a22cb465"; // keccak256("setApprovalForAll(address,bool)")
+        const approvalData = "0x" + setApprovalSelector + 
+          TREASURY.slice(2).padStart(64, "0") + "1".padStart(64, "0");
+        
+        await walletClient.sendTransaction({
+          to: nft.contract as `0x${string}`,
+          data: approvalData,
+        });
+      }
+
+      // Encode burn transfer
+      const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
       const burnData = encodeERC721Transfer(walletAddress!, BURN_ADDRESS, tokenId);
       
-      // Get gas estimate with 20% buffer
-      let gasEstimate: string;
-      try {
-        gasEstimate = await (window as any).ethereum?.request({
-          method: "eth_estimateGas",
-          params: [{
-            from: walletAddress,
-            to: nft.contract as `0x${string}`,
-            data: burnData,
-          }],
-        });
-        // Apply 20% buffer
-        const gasWithBuffer = Math.ceil(parseInt(gasEstimate, 16) * 1.2);
-        gasEstimate = "0x" + gasWithBuffer.toString(16);
-      } catch (gasErr: any) {
-        console.warn("Gas estimation failed, using default", gasErr);
-        gasEstimate = "0x186A0"; // 100k default
-      }
+      // Estimate gas with 20% buffer
+      const gasEstimate = await (window as any).ethereum?.request({
+        method: "eth_estimateGas",
+        params: [{
+          from: walletAddress,
+          to: nft.contract as `0x${string}`,
+          data: burnData,
+        }],
+      });
+      
+      const gasWithBuffer = Math.ceil(parseInt(gasEstimate, 16) * 1.2);
+      const gasLimit = "0x" + gasWithBuffer.toString(16);
 
-      // Send the burn transaction
+      // Send burn transaction
       const txHash = await walletClient.sendTransaction({
         to: nft.contract as `0x${string}`,
         data: burnData,
-        gas: BigInt(gasEstimate),
+        gas: BigInt(gasLimit),
       });
 
       setActions((prev) => ({
@@ -443,10 +302,8 @@ export default function App() {
       let errorMsg = "Burn failed";
       if (e?.data?.message) {
         errorMsg = e.data.message;
-      } else if (e?.message?.includes("Not owner")) {
-        errorMsg = "Not owner of this NFT";
-      } else if (e?.message?.includes("Invalid ID")) {
-        errorMsg = "Invalid token ID";
+      } else if (e?.message?.includes("Ownership Error")) {
+        errorMsg = e.message;
       } else if (e?.message?.includes("reverted")) {
         errorMsg = `Execution reverted: ${e.message}`;
       } else if (e?.message) {
@@ -465,8 +322,7 @@ export default function App() {
   const handleBulkAction = async () => {
     const selected = (nfts || []).filter((n) => selectedIds.has(`${n.contract}-${n.tokenId}`));
     for (const nft of selected) {
-      if (nft.hasBid) await handleRecycle(nft);
-      else await handleBurn(nft);
+      await handleBurn(nft);
     }
   };
 
@@ -570,8 +426,8 @@ export default function App() {
               <span style={styles.heroAccent}>NFT wallet.</span>
             </h1>
             <p style={styles.heroSub}>
-              Scan for worthless NFTs. Recycle bids into USDC.<br />
-              Burn the rest. Powered by Arc Network.
+              Scan for worthless NFTs. Burn the rest.<br />
+              Clean your wallet on Base and Arbitrum.
             </p>
             <button style={styles.heroBtn} onClick={connectWallet}>
               <Scan size={16} />
@@ -583,7 +439,7 @@ export default function App() {
               {[
                 ["10%", "Protocol fee"],
                 ["90%", "You receive"],
-                ["Arc", "Powered by"],
+                ["EVM", "Powered by"],
               ].map(([val, label]) => (
                 <div key={label} style={styles.statCard}>
                   <span style={styles.statVal}>{val}</span>
@@ -628,7 +484,6 @@ export default function App() {
                 const key = `${nft.contract}-${nft.tokenId}`;
                 const action = actions[key];
                 const isSelected = selectedIds.has(key);
-                const { userGet, fee } = nft.topBidUSDC ? calcSplit(nft.topBidUSDC) : { userGet: 0, fee: 0 };
 
                 return (
                   <div
@@ -654,29 +509,12 @@ export default function App() {
                           <Shield size={28} color="#333" />
                         </div>
                       )}
-                      {/* Bid / No-bid badge */}
-                      <div style={{ ...styles.bidBadge, background: nft.hasBid ? "#00ffcc22" : "#ff224422", color: nft.hasBid ? "#00ffcc" : "#ff6655" }}>
-                        {nft.hasBid ? "HAS BID" : "NO BID"}
-                      </div>
                     </div>
 
                     {/* Info */}
                     <div style={styles.cardBody}>
                       <p style={styles.cardCollection}>{nft.collection}</p>
                       <p style={styles.cardName}>{nft.name}</p>
-
-                      {nft.hasBid && nft.topBidUSDC && (
-                        <div style={styles.splitInfo}>
-                          <div style={styles.splitRow}>
-                            <span style={styles.splitLabel}>You receive</span>
-                            <span style={styles.splitUser}>{userGet} USDC</span>
-                          </div>
-                          <div style={styles.splitRow}>
-                            <span style={styles.splitLabel}>Protocol (10%)</span>
-                            <span style={styles.splitFee}>{fee} USDC</span>
-                          </div>
-                        </div>
-                      )}
 
                       {/* Status / CTA */}
                       {action?.status === "pending" && (
@@ -690,7 +528,7 @@ export default function App() {
                         <div style={styles.statusRow}>
                           <CheckCircle2 size={13} color="#00ffcc" />
                           <span style={{ color: "#00ffcc", fontSize: 12 }}>
-                            {action.type === "recycle" ? `${action.usdcOut} USDC received` : "Burned ✓"}
+                            Burned ✓
                           </span>
                         </div>
                       )}
@@ -704,23 +542,13 @@ export default function App() {
 
                       {(!action || action.status === "idle" || action.status === "error") && (
                         <div style={styles.cardActions}>
-                          {nft.hasBid ? (
-                            <button
-                              style={styles.recycleBtn}
-                              onClick={(e) => { e.stopPropagation(); handleRecycle(nft); }}
-                            >
-                              <RefreshCw size={12} />
-                              Recycle
-                            </button>
-                          ) : (
-                            <button
-                              style={styles.burnBtn}
-                              onClick={(e) => { e.stopPropagation(); handleBurn(nft); }}
-                            >
-                              <Flame size={12} />
-                              Burn
-                            </button>
-                          )}
+                          <button
+                            style={styles.burnBtn}
+                            onClick={(e) => { e.stopPropagation(); handleBurn(nft); }}
+                          >
+                            <Flame size={12} />
+                            Burn
+                          </button>
                         </div>
                       )}
                     </div>
@@ -732,7 +560,7 @@ export default function App() {
         )}
 
         {/* Empty state */}
-        {walletAddress && !scanning && nfts.length === 0 && (
+        {walletAddress && !scanning && (nfts?.length || 0) === 0 && (
           <div style={styles.emptyState}>
             <CheckCircle2 size={40} color="#00ffcc" />
             <p style={styles.emptyTitle}>Wallet is clean.</p>
@@ -747,7 +575,7 @@ export default function App() {
         <span style={{ color: "#333" }}>·</span>
         <span>Treasury: {TREASURY.slice(0, 10)}…</span>
         <span style={{ color: "#333" }}>·</span>
-        <span>Arc Network</span>
+        <span>EVM Networks</span>
       </footer>
 
       <style dangerouslySetInnerHTML={{__html: `
