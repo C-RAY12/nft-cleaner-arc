@@ -383,14 +383,55 @@ export default function App() {
     }));
 
     try {
-      // Send NFT to the burn address (0x000...dEaD) via a direct contract call
+      // Validate ownership and gas before attempting burn
       const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+      const tokenId = BigInt(nft.tokenId);
 
-      // ERC-721 safeTransferFrom
-      const data = encodeERC721Transfer(walletAddress!, BURN_ADDRESS, BigInt(nft.tokenId));
+      // Encode ownerOf check to verify ownership
+      // function ownerOf(uint256 tokenId) public view returns (address owner)
+      const ownerOfSelector = "6352211e"; // keccak256("ownerOf(uint256)")
+      const ownerOfData = "0x" + ownerOfSelector + tokenId.toString(16).padStart(64, "0");
+      
+      let ownerCheck: any;
+      try {
+        ownerCheck = await (window as any).ethereum?.request({
+          method: "eth_call",
+          params: [{
+            to: nft.contract as `0x${string}`,
+            data: ownerOfData,
+          }, "latest"],
+        });
+      } catch (ownerErr: any) {
+        console.warn("Ownership check failed (contract may not support ownerOf)", ownerErr);
+      }
+
+      // Encode ERC-721 safeTransferFrom
+      const burnData = encodeERC721Transfer(walletAddress!, BURN_ADDRESS, tokenId);
+      
+      // Get gas estimate with 20% buffer
+      let gasEstimate: string;
+      try {
+        gasEstimate = await (window as any).ethereum?.request({
+          method: "eth_estimateGas",
+          params: [{
+            from: walletAddress,
+            to: nft.contract as `0x${string}`,
+            data: burnData,
+          }],
+        });
+        // Apply 20% buffer
+        const gasWithBuffer = Math.ceil(parseInt(gasEstimate, 16) * 1.2);
+        gasEstimate = "0x" + gasWithBuffer.toString(16);
+      } catch (gasErr: any) {
+        console.warn("Gas estimation failed, using default", gasErr);
+        gasEstimate = "0x186A0"; // 100k default
+      }
+
+      // Send the burn transaction
       const txHash = await walletClient.sendTransaction({
         to: nft.contract as `0x${string}`,
-        data,
+        data: burnData,
+        gas: BigInt(gasEstimate),
       });
 
       setActions((prev) => ({
@@ -398,16 +439,31 @@ export default function App() {
         [key]: { ...prev[key], status: "success", txHash },
       }));
     } catch (e: any) {
+      // Parse detailed error message
+      let errorMsg = "Burn failed";
+      if (e?.data?.message) {
+        errorMsg = e.data.message;
+      } else if (e?.message?.includes("Not owner")) {
+        errorMsg = "Not owner of this NFT";
+      } else if (e?.message?.includes("Invalid ID")) {
+        errorMsg = "Invalid token ID";
+      } else if (e?.message?.includes("reverted")) {
+        errorMsg = `Execution reverted: ${e.message}`;
+      } else if (e?.message) {
+        errorMsg = e.message;
+      }
+      
+      console.error(`Burn error for token ${nft.tokenId}:`, e);
       setActions((prev) => ({
         ...prev,
-        [key]: { ...prev[key], status: "error", error: e.message ?? "Burn failed" },
+        [key]: { ...prev[key], status: "error", error: errorMsg },
       }));
     }
   };
 
   // ─── Bulk actions ─────────────────────────────────────────────────────────
   const handleBulkAction = async () => {
-    const selected = nfts.filter((n) => selectedIds.has(`${n.contract}-${n.tokenId}`));
+    const selected = (nfts || []).filter((n) => selectedIds.has(`${n.contract}-${n.tokenId}`));
     for (const nft of selected) {
       if (nft.hasBid) await handleRecycle(nft);
       else await handleBurn(nft);
@@ -423,7 +479,7 @@ export default function App() {
   };
 
   const selectAll = () =>
-    setSelectedIds(new Set(nfts.map((n) => `${n.contract}-${n.tokenId}`)));
+    setSelectedIds(new Set((nfts || []).map((n) => `${n.contract}-${n.tokenId}`)));
   const clearAll = () => setSelectedIds(new Set());
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -547,12 +603,12 @@ export default function App() {
         )}
 
         {/* NFT Grid */}
-        {walletAddress && !scanning && nfts.length > 0 && (
+        {walletAddress && !scanning && (nfts?.length || 0) > 0 && (
           <>
             {/* Toolbar */}
             <div style={styles.toolbar}>
               <div style={styles.toolbarLeft}>
-                <span style={styles.nftCount}>{nfts.length} tokens found</span>
+                <span style={styles.nftCount}>{nfts?.length || 0} tokens found</span>
                 <button style={styles.tinyBtn} onClick={selectAll}>Select All</button>
                 {selectedIds.size > 0 && (
                   <button style={styles.tinyBtn} onClick={clearAll}>Clear</button>
@@ -568,7 +624,7 @@ export default function App() {
 
             {/* Grid */}
             <div style={styles.grid}>
-              {nfts.map((nft) => {
+              {(nfts || []).map((nft) => {
                 const key = `${nft.contract}-${nft.tokenId}`;
                 const action = actions[key];
                 const isSelected = selectedIds.has(key);
