@@ -26,9 +26,12 @@ const ALCHEMY_KEY = import.meta.env.VITE_ALCHEMY_KEY as string;
 
 // Arc Testnet chain identifier per the official SDK enum
 const ARC_CHAIN = "Arc_Testnet";
+const ARC_RPC = "https://rpc.testnet.arc.network";
+const ARC_CHAIN_ID = 5042002;
+const ARC_GAS_TOKEN = "USDC";
 
 // ─── Multi-chain config ───────────────────────────────────────────────────────
-type ChainType = "evm" | "solana";
+type ChainType = "evm" | "solana" | "arc";
 
 interface ChainConfig {
   name: string;
@@ -49,13 +52,13 @@ const CHAINS: ChainConfig[] = [
   },
   { 
     name: "Solana",   
-    baseUrl: "https://solana-mainnet.g.alchemy.com/nft/v3", 
+    baseUrl: "https://solana-mainnet.g.alchemy.com", 
     type: "solana" 
   },
   { 
     name: "Arc",      
-    baseUrl: "https://arc-mainnet.g.alchemy.com/nft/v3",   
-    type: "evm" 
+    baseUrl: ARC_RPC,
+    type: "arc"
   },
 ];
 
@@ -94,7 +97,7 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [walletClient, setWalletClient] = useState<ReturnType<typeof createWalletClient> | null>(null);
-  const [chainStatuses, setChainStatuses] = useState<Record<string, {status: 'loading' | 'success' | 'error', error?: string}>>({});
+  const [chainStatuses, setChainStatuses] = useState<Record<string, {status: 'loading' | 'success' | 'warn' | 'error', error?: string}>>({});
 
   // ─── Wallet Connection ────────────────────────────────────────────────────
   const connectWallet = async () => {
@@ -194,9 +197,47 @@ export default function App() {
     };
 
     // ── Fetch all chains in parallel ─────────────────────────────────────────
-    const getChainUrl = (chain: ChainConfig) => `${chain.baseUrl}/getNFTsForOwner`;
+    const getChainUrl = (chain: ChainConfig) =>
+      chain.type === "solana"
+        ? `https://solana-mainnet.g.alchemy.com/nft/v2/${ALCHEMY_KEY}/getNFTs`
+        : `${chain.baseUrl}/getNFTsForOwner`;
 
     const fetchChain = async (chain: ChainConfig) => {
+      if (chain.type === "arc") {
+        try {
+          // Arc testnet uses USDC as gas token and is available via a public RPC endpoint.
+          const response = await axios.post(
+            chain.baseUrl,
+            {
+              jsonrpc: "2.0",
+              method: "eth_chainId",
+              params: [],
+              id: 1,
+            },
+            { timeout: 6000 }
+          );
+
+          const chainId = parseInt(response.data.result, 16);
+          if (chainId !== ARC_CHAIN_ID) {
+            throw new Error(`Unexpected chain ID: ${response.data.result}`);
+          }
+
+          setChainStatuses(prev => ({ ...prev, [chain.name]: { status: 'success' } }));
+          return { chain, data: null, error: null };
+        } catch (err: any) {
+          const warnMessage = 'Arc assets loading... Use Arcscan to view';
+          console.warn('Arc RPC fetch failed', err);
+          setChainStatuses(prev => ({
+            ...prev,
+            [chain.name]: {
+              status: 'warn',
+              error: warnMessage,
+            },
+          }));
+          return { chain, data: null, error: err };
+        }
+      }
+
       const url = getChainUrl(chain);
       const params: Record<string, any> =
         chain.type === "evm"
@@ -220,14 +261,26 @@ export default function App() {
         setChainStatuses(prev => ({...prev, [chain.name]: {status: 'success'}}));
         return { chain, data: response.data, error: null };
       } catch (err: any) {
-        const errorMessage = axios.isAxiosError(err)
-          ? err.response?.status === 401
-            ? "Not Authorized"
-            : err.response?.status === 400
-            ? "Bad Request"
-            : err.message ?? "fetch failed"
-          : err?.message ?? "fetch failed";
-        setChainStatuses(prev => ({...prev, [chain.name]: {status: 'error', error: errorMessage}}));
+        const authRequired = axios.isAxiosError(err) && err.response?.status === 401;
+        const badRequest = axios.isAxiosError(err) && err.response?.status === 400;
+        const errorMessage = authRequired
+          ? `Authorization required for ${chain.name}`
+          : badRequest
+          ? `Bad Request for ${chain.name}`
+          : err.message ?? "fetch failed";
+
+        if (authRequired) {
+          console.warn(errorMessage, err);
+        }
+
+        setChainStatuses(prev => ({
+          ...prev,
+          [chain.name]: {
+            status: authRequired || badRequest ? 'warn' : 'error',
+            error: errorMessage,
+          },
+        }));
+
         return { chain, data: null, error: err };
       }
     };
@@ -425,9 +478,21 @@ export default function App() {
               const status = chainStatuses[chain.name];
               if (!status) return null;
               return (
-                <div key={chain.name} style={{...styles.chainBadge, ...(status.status === 'error' ? styles.chainBadgeError : status.status === 'success' ? styles.chainBadgeSuccess : styles.chainBadgeLoading)}}>
+                <div
+                  key={chain.name}
+                  style={{
+                    ...styles.chainBadge,
+                    ...(status.status === 'error'
+                      ? styles.chainBadgeError
+                      : status.status === 'success'
+                      ? styles.chainBadgeSuccess
+                      : status.status === 'warn'
+                      ? styles.chainBadgeWarn
+                      : styles.chainBadgeLoading),
+                  }}
+                >
                   {chain.name}
-                  {status.status === 'error' && ` (${status.error})`}
+                  {(status.status === 'error' || status.status === 'warn') && ` (${status.error})`}
                 </div>
               );
             })}
@@ -1218,6 +1283,11 @@ const styles: Record<string, CSSProperties> = {
     borderColor: "#ff224444",
     background: "#ff224411",
     color: "#ff6655",
+  },
+  chainBadgeWarn: {
+    borderColor: "#475569",
+    background: "#0f172a",
+    color: "#cbd5e1",
   },
   chainBadgeLoading: {
     color: "#00ffcc88",
