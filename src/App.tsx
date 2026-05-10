@@ -189,12 +189,10 @@ export default function App() {
     };
 
     // ── Fetch all chains in parallel ─────────────────────────────────────────
-    const chainRequests = CHAINS.map((chain) => {
-      const url =
-        chain.type === "evm"
-          ? `${chain.baseUrl}/${ALCHEMY_KEY}/getNFTsForOwner`
-          : `${chain.baseUrl}/${ALCHEMY_KEY}/getNFTsForOwner`;
+    const getChainUrl = (chain: ChainConfig) => `${chain.baseUrl}/getNFTsForOwner`;
 
+    const fetchChain = async (chain: ChainConfig) => {
+      const url = getChainUrl(chain);
       const params: Record<string, any> =
         chain.type === "evm"
           ? {
@@ -209,13 +207,18 @@ export default function App() {
               pageSize: 50,
             };
 
-      return axios
-        .get(url, { params, headers: { "X-Alchemy-Token": ALCHEMY_KEY } })
-        .then((res) => ({ chain, data: res.data, error: null }))
-        .catch((err) => ({ chain, data: null, error: err }));
-    });
+      try {
+        const response = await axios.get(url, {
+          params,
+          headers: { "X-Alchemy-Token": ALCHEMY_KEY },
+        });
+        return { chain, data: response.data, error: null };
+      } catch (err: any) {
+        return { chain, data: null, error: err };
+      }
+    };
 
-    const results = await Promise.all(chainRequests);
+    const results = await Promise.all(CHAINS.map(fetchChain));
 
     // ── Normalize + merge ────────────────────────────────────────────────────
     const allErrors: string[] = [];
@@ -226,6 +229,8 @@ export default function App() {
         const errorMessage = axios.isAxiosError(error)
           ? error.response?.status === 401
             ? "unauthorized"
+            : error.response?.status === 400
+            ? "Network Busy"
             : error.response?.status === 404
             ? "endpoint not found"
             : error.message ?? "fetch failed"
@@ -244,9 +249,12 @@ export default function App() {
 
     // Surface partial errors without blocking the UI
     if (allErrors.length > 0) {
+      const networkBusy = allErrors.some((msg) => msg.includes("Network Busy"));
       const authIssue = allErrors.some((msg) => msg.includes("unauthorized"));
       setGlobalError(
-        authIssue
+        networkBusy
+          ? "Network Busy. Please wait a moment and retry."
+          : authIssue
           ? "Some networks are not authorized. Verify your Alchemy credentials and retry."
           : `Some chains failed: ${allErrors.join(" · ")}. Retry to refresh.`
       );
@@ -406,7 +414,7 @@ export default function App() {
       <main style={styles.main}>
         {/* Global error */}
         {globalError && (
-          <div style={styles.errorBanner}>
+          <div style={globalError.includes("Network Busy") ? styles.infoBanner : styles.errorBanner}>
             <AlertTriangle size={15} />
             <span>{globalError}</span>
             {walletAddress && !scanning && (
@@ -782,6 +790,18 @@ const styles: Record<string, CSSProperties> = {
     padding: "12px 16px",
     marginBottom: 24,
     color: "#ff6655",
+    fontSize: 14,
+  },
+  infoBanner: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    background: "#0f172a",
+    border: "1px solid #334155",
+    borderRadius: 4,
+    padding: "12px 16px",
+    marginBottom: 24,
+    color: "#cbd5e1",
     fontSize: 14,
   },
   closeBtn: {
