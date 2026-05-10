@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type CSSProperties } from "react";
 import axios from "axios";
 import {
   Flame,
@@ -359,7 +359,7 @@ export default function App() {
         <div style={styles.root}>
       <div style={{ backgroundColor: 'rgba(127, 29, 29, 0.2)', border: '1px solid rgba(239, 68, 68, 0.5)', padding: '12px', marginBottom: '16px', borderRadius: '4px', fontSize: '12px', color: '#fecaca' }}>
         ⚠️ Warning: Scam NFTs detected. Do not click external links in NFT descriptions. Use only Burn or Recycle buttons.
-      
+      </div>
 
       {/* Header */}
       <header style={styles.header}>
@@ -592,28 +592,43 @@ export default function App() {
         <span>Arc Network</span>
       </footer>
 
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
+      <style dangerouslySetInnerHTML={{__html: `
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&display=swap');
 
-        body {
-          background: #080b0e;
-          color: #c4cdd8;
-          font-family: 'Rajdhani', sans-serif;
-        }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.4 } }
-        @keyframes scanline {
-          0% { transform: translateY(-100%); }
-          100% { transform: translateY(100vh); }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(12px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-      }</style>
+body {
+
+  background: #080b0e;
+
+  color: #c4cdd8;
+
+  font-family: 'Rajdhani', sans-serif;
+
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.4 } }
+
+@keyframes scanline {
+
+  0% { transform: translateY(-100%); }
+
+  100% { transform: translateY(100vh); }
+
+}
+
+@keyframes fadeIn {
+
+  from { opacity: 0; transform: translateY(12px); }
+
+  to   { opacity: 1; transform: translateY(0); }
+
+}
+
+      `}} />
     </div>
   );
 };
@@ -628,7 +643,7 @@ function encodeERC721Transfer(from: string, to: string, tokenId: bigint): string
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
-const styles: Record<string, React.CSSProperties> = {
+const styles: Record<string, CSSProperties> = {
   root: {
     minHeight: "100vh",
     display: "flex",
@@ -1131,4 +1146,3 @@ declare global {
             };
   }
 }
-export default App;
